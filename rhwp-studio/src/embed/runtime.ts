@@ -11,6 +11,7 @@ import {
 } from './protocol.ts';
 import { routeEmbedRequest, type EmbedRpcHandlers } from './rpc-router.ts';
 import { isDocumentAgentError } from '../document-agent/types.ts';
+import { installEmbedHostSaveShortcut, setEmbedHostParentOrigin } from './host-save-bridge.ts';
 
 interface EmbedRuntimeOptions {
   hostWindow: Window;
@@ -168,6 +169,7 @@ async function handleLegacy(
 export function installEmbedRuntime(options: EmbedRuntimeOptions): () => void {
   const ports = new Set<MessagePort>();
   const isTopLevelSameWindow = options.parentWindow === options.hostWindow;
+  const offSaveShortcut = installEmbedHostSaveShortcut(options.hostWindow, options.parentWindow);
   let binding: {
     origin: string;
     sessionId: string;
@@ -224,13 +226,16 @@ export function installEmbedRuntime(options: EmbedRuntimeOptions): () => void {
         subscriptions,
       );
       binding = { origin: event.origin, sessionId: event.data.sessionId, port, offEvents };
+      setEmbedHostParentOrigin(event.origin, options.parentWindow);
       return;
     }
     if (binding) return;
+    setEmbedHostParentOrigin(event.origin, options.parentWindow);
     void handleLegacy(event, options.handlers);
   };
   options.hostWindow.addEventListener('message', onMessage);
   return () => {
+    offSaveShortcut();
     options.hostWindow.removeEventListener('message', onMessage);
     binding?.offEvents();
     for (const port of ports) releasePort(port);

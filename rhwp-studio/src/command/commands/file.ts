@@ -68,6 +68,7 @@ import { userSettings } from '@/core/user-settings';
 import { showToast } from '@/ui/toast';
 import { addRecentDoc, clearRecentDocs, listRecentDocs, removeRecentDoc } from '@/recent/recent-store';
 import { openRecentEntry } from '@/recent/recent-open';
+import { requestEmbedHostSave } from '../../embed/host-save-bridge.ts';
 
 import { t } from '../../i18n/index.ts';
 /**
@@ -400,6 +401,7 @@ function reportSaveError(scope: string, error: unknown): void {
 export type SaveCurrentDocumentResult = 'saved' | 'cancelled' | 'failed' | 'unsupported';
 
 export async function saveCurrentDocument(services: CommandServices): Promise<SaveCurrentDocumentResult> {
+  if (requestEmbedHostSave()) return 'saved';
   let password: string | null = null;
   let recoveryCipher: RecoveryCipher | null = null;
   const generation = services.wasm.documentGeneration;
