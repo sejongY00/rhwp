@@ -116,6 +116,7 @@ import { CENTER_ZOOM_ANCHOR } from '@/view/zoom-anchor';
 import { withBusyCursor } from '@/view/busy-cursor';
 import { formatPageIndicator } from '@/view/page-indicator';
 import { installEmbedRuntime } from '@/embed/runtime';
+import { setEmbedHostSaveStatus } from '@/embed/host-save-bridge';
 import { subscribeFieldChanges } from '@/embed/field-events';
 import type { EmbedRendererRuntimeRequestV1 } from '@/embed/rpc-router';
 import { enrichFontDecisionTrace } from '@/core/font-decision-trace';
@@ -132,6 +133,16 @@ const wasm = new WasmBridge();
 installDocumentTitle(wasm);
 const eventBus = new EventBus();
 const documentState = new DocumentDirtyState(eventBus);
+eventBus.on('document-dirty-changed', (payload) => {
+  const change = payload as { dirty?: boolean; reason?: string } | undefined;
+  if (change?.dirty) {
+    setEmbedHostSaveStatus('modified');
+  } else if (change?.reason === 'host-save' || change?.reason === 'save' || change?.reason === 'save-as') {
+    setEmbedHostSaveStatus('saved');
+  } else {
+    setEmbedHostSaveStatus('pristine');
+  }
+});
 installCommandErrorGlobalRouting(window);
 // WKWebView 등 직접 호스트는 EventTarget을 구독하고 이 조회로 현재 문서 세션을 확인한다.
 Object.defineProperty(window, 'rhwpCommandErrors', { value: Object.freeze({
@@ -177,6 +188,7 @@ async function completeHostSave(fileName?: string): Promise<{ ok: true; wasDirty
   const wasDirty = documentState.isDirty();
   if (fileName) wasm.fileName = fileName;
   documentState.markClean('host-save');
+  setEmbedHostSaveStatus('saved');
   await autosaveManager.discardCurrentDraft('host-save');
   return { ok: true, wasDirty };
 }
@@ -2334,6 +2346,7 @@ installEmbedRuntime({
         throw new Error('문서 열기가 취소되었습니다.');
       }
       await loadBytes(data, fileName, null, undefined, { suppressDialogs });
+      setEmbedHostSaveStatus('pristine');
       return { pageCount: wasm.pageCount };
     },
     async getCommandErrorState() {

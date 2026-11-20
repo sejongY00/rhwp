@@ -1,10 +1,33 @@
 import { detectPlatformKind, type PlatformKind } from '../engine/navigation-keymap.ts';
 import { isUsableParentOrigin } from './protocol.ts';
 
+export type EmbedHostSaveStatus = 'pristine' | 'modified' | 'saved';
+
 let hostParentOrigin: string | null = null;
 let hostParentWindow: Window | null = null;
+let hostSaveStatus: EmbedHostSaveStatus = 'pristine';
+let syncTitleBadge: (() => void) | null = null;
 let lastSaveRequestAt = 0;
 const SAVE_REQUEST_DEDUPE_MS = 150;
+
+function formatSaveStatusSuffix(status: EmbedHostSaveStatus): string {
+  if (status === 'modified') return ' - 수정됨';
+  if (status === 'saved') return ' - 저장됨';
+  return '';
+}
+
+export function setEmbedHostSaveStatus(
+  status: EmbedHostSaveStatus,
+  options: { notifyParent?: boolean } = {},
+): void {
+  hostSaveStatus = status;
+  syncTitleBadge?.();
+  if (options.notifyParent === false) return;
+  const win = typeof window !== 'undefined' ? window : null;
+  const parentWin = hostParentWindow ?? win?.parent ?? null;
+  if (!win || !parentWin || parentWin === win || !hostParentOrigin) return;
+  parentWin.postMessage({ type: 'rhwp:save-status-changed', status }, hostParentOrigin);
+}
 
 function isSaveKey(event: Pick<KeyboardEvent, 'key' | 'code'>): boolean {
   const key = (event.key ?? '').toLowerCase();
@@ -123,10 +146,13 @@ function mountEmbedMenuBarChrome(doc: Document): () => void {
 
   const syncTitleFromDocument = () => {
     const raw = (doc.title || '').replace(/\s+-\s+rhwp-studio$/i, '').trim();
-    const display = !raw || /^rhwp-studio$/i.test(raw) ? '' : raw;
+    const base = !raw || /^rhwp-studio$/i.test(raw) ? '' : raw;
+    const display = base ? `${base}${formatSaveStatusSuffix(hostSaveStatus)}` : '';
     titleBadge.textContent = display;
     titleBadge.title = display;
+    titleBadge.dataset.saveStatus = hostSaveStatus;
   };
+  syncTitleBadge = syncTitleFromDocument;
   syncTitleFromDocument();
 
   const titleEl = doc.querySelector('title');
@@ -152,6 +178,7 @@ function mountEmbedMenuBarChrome(doc: Document): () => void {
   menuBar.appendChild(closeBtn);
 
   return () => {
+    if (syncTitleBadge === syncTitleFromDocument) syncTitleBadge = null;
     observer?.disconnect();
     titleBadge.remove();
     closeBtn.remove();
